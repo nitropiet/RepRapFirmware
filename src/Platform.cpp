@@ -1429,7 +1429,7 @@ void Platform::Spin()
 
 #ifdef DUET_NG
 		// Check whether it is time to report any faults (do this after checking fans in case driver cooling fans are turned on)
-		if (now - lastWarningMillis > MinimumWarningInterval)
+		if (now - lastWarningMillis >  MinimumWarningIntervalErrors)  //added André
 		{
 			bool reported = false;
 			ReportDrivers(shortToGroundDrivers, "Error: Short-to-ground", reported);
