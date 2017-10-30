@@ -1,22 +1,43 @@
 Summary of important changes in recent versions
 ===============================================
 
+Version 1.20beta4
+=================
+
+Bug fixes:
+
+- Resuming a print after pausing still sometimes gave a "low voltage" error if no M911 command had been used
+- Simulation mode didn't work in 1.20b2 or 1.20b3
+
+Version 1.20beta3
+=================
+
+Bug fixes:
+- M500 command wrote extra M307 lines were written to config-override.g in 1.20b2
+- CoreXY homing didn't work in 1.20b2
+- Motor idle detection didn't work in 1.20b2
+- M585 didn't work
+- Resuming a print after pausing gave a "low voltage" error if no M911 command had been used
+- The code to detect M122 early also recognised commands of the form Mxxx122 where xxx were non-numeric
+
 Version 1.20beta2
 =================
 
 Upgrade notes
-- Duet WiFi user can use either DuetWiFiServer 1.20beta2 (which disables WiFi module sleep) or 1.20alpha1 (which uses the default "modem sleep" mode)
+- Duet WiFi users can use either DuetWiFiServer 1.20beta2 (which disables WiFi module sleep) or 1.20alpha1 (which uses the default "modem sleep" mode)
 - The parameters to the M911 command (which configures power fail handling) have changed. If you use this command in config.g you will have to change it accordingly.
+- On a Duet WiFi, if your M552 command in config.g includes a P parameter with an IP address, you will need to remove them
+- If you currently have G31 parameters for your active Z probe in config-override.g that are different from the ones in config.g, you should copy them to config.g, otherwise they will be lost next time you run M500.
 
 New and changed features:
+- M500 no longer saves G31 Z probe parameters to confog-override.g
+- A line of GCode may now contain multiple G- and M-commands. The commands are executed sequentially. A command that takes an un-quoted string parameter must be the last command on the line. A T command must be on a line by itself.
 - On SCARA printers, arm position limits are applied as well as XY size limits
 - Heater 0 values are sent to to PanelDue even if there is no heated bed
 - When logging is enabled, a log entry is now written when the date/time is set
 - When logging is enabled, "Maximum open file count exceeded" messages are logged
-- Loss of power is now handled much faster. The print is paused in the middle of a move if necessary. The M991 parameters are changed to facilitate this.
-- When resuming a print after loss of power, the head is now moved up, sideways, and finally down when restoring position
+- Loss of power is now handled much faster. The print is paused in the middle of a move if necessary. The M911 parameters are changed to facilitate this.
 - Following a power failure, M916 can now be used to resume the print instead of using M98 Presurrect.g
-- The heater control now switches to fast PID parameters when the temperature is within 3C of target, instead of within 1C
 - The TMC2660 Stallguard detection and Coolstep parameters may now be configured using M915. Currently, no action is performed when a stall is signalled.
 - If a heater fault occurs, the print is paused instead of cancelled
 - The start and end speeds of short segmented moves in accelerating or decalerating sequences are more closely matched where possible, which should give smoother motion

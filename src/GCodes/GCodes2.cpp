@@ -29,7 +29,7 @@
 # include "FirmwareUpdater.h"
 #endif
 
-#include <algorithm>			// for std::swap
+#include <utility>			// for std::swap
 
 // If the code to act on is completed, this returns true,
 // otherwise false.  It is called repeatedly for a given
@@ -293,16 +293,13 @@ bool GCodes::HandleMcode(GCodeBuffer& gb, StringRef& reply)
 			return false;
 		}
 		{
-			bool wasPaused = isPaused;					// isPaused gets cleared by CancelPrint
-			CancelPrint(true, &gb == fileGCode);		// if this is normal end-of-print commanded by the file, deleted the ressurrect.g file
-			if (wasPaused)
+			const bool wasPaused = isPaused;			// isPaused gets cleared by CancelPrint
+			StopPrint(&gb == fileGCode);				// if this is normal end-of-print commanded by the file, deleted the resurrect.g file
+
+			// If we are cancelling a paused print with M0 and we are homed and cancel.g exists then run it and do nothing else
+			if (wasPaused && code == 0 && AllAxesAreHomed() && DoFileMacro(gb, CANCEL_G, false))
 			{
-				reply.copy("Print cancelled");
-				// If we are cancelling a paused print with M0 and we are homed and cancel.g exists then run it and do nothing else
-				if (code == 0 && AllAxesAreHomed() && DoFileMacro(gb, CANCEL_G, false))
-				{
-					break;
-				}
+				break;
 			}
 		}
 
@@ -3361,67 +3358,69 @@ bool GCodes::HandleMcode(GCodeBuffer& gb, StringRef& reply)
 			break;
 		}
 
-		if (LockMovementAndWaitForStandstill(gb))
+		if (!LockMovementAndWaitForStandstill(gb))
 		{
-			for (size_t axis = 0; axis < numTotalAxes; axis++)
+			return false;
+		}
+
+		for (size_t axis = 0; axis < numTotalAxes; axis++)
+		{
+			if (gb.Seen(axisLetters[axis]))
 			{
-				if (gb.Seen(axisLetters[axis]))
+				// Get parameters first and check them
+				const int endStopToUse = gb.Seen('E') ? gb.GetIValue() : 0;
+				if (endStopToUse < 0 || endStopToUse > (int)DRIVES)
 				{
-					// Get parameters first and check them
-					const int endStopToUse = gb.Seen('E') ? gb.GetIValue() : 0;
-					if (endStopToUse < 0 || endStopToUse > (int)DRIVES)
-					{
-						reply.copy("Invalid endstop number");
-						result = GCodeResult::error;
-						break;
-					}
-
-					// Save the current axis coordinates
-					memcpy(toolChangeRestorePoint.moveCoords, currentUserPosition, ARRAY_SIZE(currentUserPosition) * sizeof(currentUserPosition[0]));
-
-					// Prepare another move similar to G1 .. S3
-					moveBuffer.moveType = 3;
-					if (endStopToUse == 0)
-					{
-						moveBuffer.endStopsToCheck = 0;
-						SetBit(moveBuffer.endStopsToCheck, axis);
-					}
-					else
-					{
-						moveBuffer.endStopsToCheck = UseSpecialEndstop;
-						SetBit(moveBuffer.endStopsToCheck, endStopToUse);
-					}
-					moveBuffer.xAxes = DefaultXAxisMapping;
-					moveBuffer.yAxes = DefaultYAxisMapping;
-					moveBuffer.usePressureAdvance = false;
-					moveBuffer.filePos = noFilePosition;
-					moveBuffer.canPauseAfter = false;
-					moveBuffer.canPauseBefore = true;
-
-					// Decide which way and how far to go
-					const float axisLength = platform.AxisMaximum(axis) - platform.AxisMinimum(axis) + 5.0;
-					moveBuffer.coords[axis] = (gb.Seen('S') && gb.GetIValue() == 1) ? axisLength * -1.0 : axisLength;
-
-					// Zero every extruder drive
-					for (size_t drive = numTotalAxes; drive < DRIVES; drive++)
-					{
-						moveBuffer.coords[drive] = 0.0;
-					}
-					moveBuffer.hasExtrusion = false;
-
-					// Deal with feed rate
-					if (gb.Seen(feedrateLetter))
-					{
-						const float rate = gb.GetFValue() * distanceScale;
-						gb.MachineState().feedrate = rate * SecondsToMinutes;	// don't apply the speed factor to homing and other special moves
-					}
-					moveBuffer.feedRate = gb.MachineState().feedrate;
-
-					// Kick off new movement
-					segmentsLeft = 1;
-					gb.SetState(GCodeState::probingToolOffset);
+					reply.copy("Invalid endstop number");
+					result = GCodeResult::error;
 					break;
 				}
+
+				// Save the current axis coordinates
+				memcpy(toolChangeRestorePoint.moveCoords, currentUserPosition, ARRAY_SIZE(currentUserPosition) * sizeof(currentUserPosition[0]));
+
+				// Prepare another move similar to G1 .. S3
+				moveBuffer.moveType = 3;
+				if (endStopToUse == 0)
+				{
+					moveBuffer.endStopsToCheck = 0;
+					SetBit(moveBuffer.endStopsToCheck, axis);
+				}
+				else
+				{
+					moveBuffer.endStopsToCheck = UseSpecialEndstop;
+					SetBit(moveBuffer.endStopsToCheck, endStopToUse);
+				}
+				moveBuffer.xAxes = DefaultXAxisMapping;
+				moveBuffer.yAxes = DefaultYAxisMapping;
+				moveBuffer.usePressureAdvance = false;
+				moveBuffer.filePos = noFilePosition;
+				moveBuffer.canPauseAfter = false;
+				moveBuffer.canPauseBefore = true;
+
+				// Decide which way and how far to go
+				const float axisLength = platform.AxisMaximum(axis) - platform.AxisMinimum(axis) + 5.0;
+				moveBuffer.coords[axis] = (gb.Seen('S') && gb.GetIValue() == 1) ? axisLength * -1.0 : axisLength;
+
+				// Zero every extruder drive
+				for (size_t drive = numTotalAxes; drive < DRIVES; drive++)
+				{
+					moveBuffer.coords[drive] = 0.0;
+				}
+				moveBuffer.hasExtrusion = false;
+
+				// Deal with feed rate
+				if (gb.Seen(feedrateLetter))
+				{
+					const float rate = gb.GetFValue() * distanceScale;
+					gb.MachineState().feedrate = rate * SecondsToMinutes;	// don't apply the speed factor to homing and other special moves
+				}
+				moveBuffer.feedRate = gb.MachineState().feedrate;
+
+				// Kick off new movement
+				segmentsLeft = 1;
+				gb.SetState(GCodeState::probingToolOffset);
+				break;
 			}
 		}
 		break;
